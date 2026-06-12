@@ -13,7 +13,8 @@ const AI_DIFFICULTY = 0.8;
 // Game State
 let gameState = {
     running: false,
-    gameMode: 'ai', // 'ai' or 'local'
+    gameMode: 'ai', // 'ai', 'local', or 'online'
+    isOnlineHost: false,
     player1: {
         y: CANVAS_HEIGHT / 2 - PADDLE_HEIGHT / 2,
         score: 0,
@@ -21,7 +22,8 @@ let gameState = {
         paddleHeight: PADDLE_HEIGHT,
         expandedUntil: 0,
         slowBallUntil: 0,
-        speedBallUntil: 0
+        speedBallUntil: 0,
+        name: 'Player 1'
     },
     player2: {
         y: CANVAS_HEIGHT / 2 - PADDLE_HEIGHT / 2,
@@ -30,7 +32,8 @@ let gameState = {
         paddleHeight: PADDLE_HEIGHT,
         expandedUntil: 0,
         slowBallUntil: 0,
-        speedBallUntil: 0
+        speedBallUntil: 0,
+        name: 'Player 2'
     },
     ball: {
         x: CANVAS_WIDTH / 2,
@@ -47,7 +50,8 @@ let gameState = {
         player2Down: false,
         mouseY: CANVAS_HEIGHT / 2
     },
-    powerUpSpawns: []
+    powerUpSpawns: [],
+    syncCounter: 0
 };
 
 // Canvas Setup
@@ -56,21 +60,54 @@ const ctx = canvas.getContext('2d');
 
 // UI Elements
 const startBtn = document.getElementById('startBtn');
+const leaveBtn = document.getElementById('leaveBtn');
 const gameStatusEl = document.getElementById('gameStatus');
 const player1ScoreEl = document.getElementById('player1Score');
 const player2ScoreEl = document.getElementById('player2Score');
 const player1PowerUpsEl = document.getElementById('player1PowerUps');
 const player2PowerUpsEl = document.getElementById('player2PowerUps');
 const modeBtns = document.querySelectorAll('.mode-btn');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const createPartyBtn = document.getElementById('createPartyBtn');
+const joinPartyBtn = document.getElementById('joinPartyBtn');
+const gameContainer = document.getElementById('gameContainer');
 
 // Event Listeners
 startBtn.addEventListener('click', toggleGame);
+leaveBtn.addEventListener('click', leaveGame);
 document.addEventListener('keydown', handleKeyDown);
 document.addEventListener('keyup', handleKeyUp);
 canvas.addEventListener('mousemove', handleMouseMove);
 modeBtns.forEach(btn => {
     btn.addEventListener('click', changeGameMode);
 });
+fullscreenBtn.addEventListener('click', toggleFullscreen);
+createPartyBtn.addEventListener('click', openCreateModal);
+joinPartyBtn.addEventListener('click', openJoinModal);
+
+// Fullscreen Toggle
+function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+        gameContainer.requestFullscreen().catch(err => {
+            alert(`Error attempting to enable fullscreen: ${err.message}`);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+}
+
+// Leave Online Game
+function leaveGame() {
+    if (gameState.gameMode === 'online') {
+        wsClient.disconnect();
+        gameState.running = false;
+        gameState.gameMode = 'ai';
+        leaveBtn.style.display = 'none';
+        startBtn.style.display = 'block';
+        document.getElementById('onlinePanel').style.display = 'block';
+        resetGame();
+    }
+}
 
 // Input Handling
 function handleKeyDown(e) {
@@ -91,16 +128,27 @@ function handleKeyDown(e) {
             break;
         case ' ':
             e.preventDefault();
-            toggleGame();
+            if (gameState.gameMode !== 'online' || gameState.isOnlineHost) {
+                toggleGame();
+            }
             break;
         case 'Q':
             activatePowerUp(gameState.player1, 'speed');
+            if (gameState.gameMode === 'online') {
+                wsClient.sendGameAction('power_up', { type: 'speed' });
+            }
             break;
         case 'W':
             activatePowerUp(gameState.player1, 'expand');
+            if (gameState.gameMode === 'online') {
+                wsClient.sendGameAction('power_up', { type: 'expand' });
+            }
             break;
         case 'E':
             activatePowerUp(gameState.player1, 'slow');
+            if (gameState.gameMode === 'online') {
+                wsClient.sendGameAction('power_up', { type: 'slow' });
+            }
             break;
         case 'P':
             if (gameState.gameMode === 'local') {
@@ -145,8 +193,17 @@ function changeGameMode(e) {
     modeBtns.forEach(btn => btn.classList.remove('active'));
     e.target.classList.add('active');
     
-    resetGame();
-    updateGameStatus();
+    if (mode === 'online') {
+        document.getElementById('onlinePanel').style.display = 'block';
+        startBtn.style.display = 'none';
+        leaveBtn.style.display = 'none';
+    } else {
+        document.getElementById('onlinePanel').style.display = 'none';
+        startBtn.style.display = 'block';
+        leaveBtn.style.display = 'none';
+        resetGame();
+        updateGameStatus();
+    }
 }
 
 function toggleGame() {
@@ -179,6 +236,7 @@ function resetGame() {
     gameState.player1.powerUps = [];
     gameState.player2.powerUps = [];
     gameState.powerUpSpawns = [];
+    gameState.syncCounter = 0;
 
     gameState.running = false;
     updateGameStatus();
@@ -304,44 +362,60 @@ function updateGame() {
     
     if (gameState.gameMode === 'ai') {
         updateAIPaddle(gameState.player2);
-    } else {
+    } else if (gameState.gameMode === 'local') {
         updatePaddle(gameState.player2, 'keyboard');
+    } else if (gameState.gameMode === 'online') {
+        // In online mode, player2 position is updated from server
+        if (!gameState.isOnlineHost) {
+            updatePaddle(gameState.player2, 'keyboard');
+        }
     }
 
-    // Update ball position
-    gameState.ball.x += gameState.ball.vx * (gameState.ball.speed / INITIAL_BALL_SPEED);
-    gameState.ball.y += gameState.ball.vy * (gameState.ball.speed / INITIAL_BALL_SPEED);
+    // Update ball position (only host updates ball in online mode)
+    if (gameState.gameMode !== 'online' || gameState.isOnlineHost) {
+        gameState.ball.x += gameState.ball.vx * (gameState.ball.speed / INITIAL_BALL_SPEED);
+        gameState.ball.y += gameState.ball.vy * (gameState.ball.speed / INITIAL_BALL_SPEED);
 
-    // Ball collision with top and bottom walls
-    if (gameState.ball.y - gameState.ball.radius < 0 || 
-        gameState.ball.y + gameState.ball.radius > CANVAS_HEIGHT) {
-        gameState.ball.vy = -gameState.ball.vy;
-        gameState.ball.y = Math.max(gameState.ball.radius, 
-                                   Math.min(CANVAS_HEIGHT - gameState.ball.radius, gameState.ball.y));
-    }
+        // Ball collision with top and bottom walls
+        if (gameState.ball.y - gameState.ball.radius < 0 || 
+            gameState.ball.y + gameState.ball.radius > CANVAS_HEIGHT) {
+            gameState.ball.vy = -gameState.ball.vy;
+            gameState.ball.y = Math.max(gameState.ball.radius, 
+                                       Math.min(CANVAS_HEIGHT - gameState.ball.radius, gameState.ball.y));
+        }
 
-    // Ball collision with paddles
-    checkPaddleCollision(gameState.player1, 0);
-    checkPaddleCollision(gameState.player2, CANVAS_WIDTH - PADDLE_WIDTH);
+        // Ball collision with paddles
+        checkPaddleCollision(gameState.player1, 0);
+        checkPaddleCollision(gameState.player2, CANVAS_WIDTH - PADDLE_WIDTH);
 
-    // Ball out of bounds
-    if (gameState.ball.x - gameState.ball.radius < 0) {
-        gameState.player2.score++;
-        resetBall();
-    } else if (gameState.ball.x + gameState.ball.radius > CANVAS_WIDTH) {
-        gameState.player1.score++;
-        resetBall();
-    }
+        // Ball out of bounds
+        if (gameState.ball.x - gameState.ball.radius < 0) {
+            gameState.player2.score++;
+            resetBall();
+        } else if (gameState.ball.x + gameState.ball.radius > CANVAS_WIDTH) {
+            gameState.player1.score++;
+            resetBall();
+        }
 
-    // Spawn random power-ups
-    if (Math.random() < 0.001 && gameState.powerUpSpawns.length < 3) {
-        spawnPowerUp();
+        // Spawn random power-ups
+        if (Math.random() < 0.001 && gameState.powerUpSpawns.length < 3) {
+            spawnPowerUp();
+        }
     }
 
     // Update and draw power-ups
     updatePowerUpCollisions();
 
     updateScoreboard();
+
+    // Sync game state periodically in online mode
+    if (gameState.gameMode === 'online' && gameState.running) {
+        gameState.syncCounter++;
+        if (gameState.syncCounter > 5) {
+            wsClient.sendGameState(gameState);
+            gameState.syncCounter = 0;
+        }
+    }
 }
 
 function updatePaddle(player, controlMode) {
@@ -537,6 +611,30 @@ function drawPowerUps() {
         ctx.shadowBlur = 0;
     });
 }
+
+// Online game state update handlers
+window.updateOpponentState = (message) => {
+    if (!gameState.isOnlineHost) {
+        gameState.player2.y = message.playerY;
+        gameState.ball = message.ball;
+        gameState.player2.score = message.score;
+        gameState.player2.powerUps = message.powerUps;
+    }
+};
+
+window.handleOpponentAction = (message) => {
+    if (message.action === 'power_up') {
+        activatePowerUp(gameState.player2, message.data.type);
+    }
+};
+
+window.onOpponentDisconnected = (message) => {
+    gameState.running = false;
+    gameStatusEl.textContent = 'OPPONENT DISCONNECTED - Game Over';
+    setTimeout(() => {
+        leaveGame();
+    }, 2000);
+};
 
 // Game Loop
 function gameLoop() {
