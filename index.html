@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pong Game</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="header">
+            <h1>PONG GAME</h1>
+            <div class="mode-selector">
+                <button class="mode-btn active" data-mode="ai">Play vs AI</button>
+                <button class="mode-btn" data-mode="local">Local 2 Player</button>
+            </div>
+        </div>
+
+        <div class="game-stats">
+            <div class="player-info">
+                <h2>Player 1</h2>
+                <div class="score" id="player1Score">0</div>
+                <div class="power-ups-display" id="player1PowerUps"></div>
+            </div>
+            <div class="center-info">
+                <div class="game-status" id="gameStatus">Press SPACE to Start</div>
+                <button class="start-btn" id="startBtn">START GAME</button>
+            </div>
+            <div class="player-info">
+                <h2>Player 2</h2>
+                <div class="score" id="player2Score">0</div>
+                <div class="power-ups-display" id="player2PowerUps"></div>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+        <div class="controls">
+            <div class="control-group">
+                <h3>Player 1 Controls:</h3>
+                <p>🖱️ Mouse: Move paddle</p>
+                <p>⬆️ ⬇️ Arrow Keys: Move paddle</p>
+                <p>Q: Speed Ball</p>
+                <p>W: Expand Paddle</p>
+                <p>E: Slow Ball</p>
+            </div>
+            <div class="control-group">
+                <h3>Player 2 Controls:</h3>
+                <p>🎮 Arrow Up/Down</p>
+                <p>P: Speed Ball</p>
+                <p>O: Expand Paddle</p>
+                <p>I: Slow Ball</p>
+            </div>
+        </div>
+
+        <div class="legend">
+            <h3>Power-ups Legend:</h3>
+            <div class="power-up-item">
+                <span class="power-icon speed">⚡</span>
+                <span>Speed Ball - Makes the ball faster</span>
+            </div>
+            <div class="power-up-item">
+                <span class="power-icon expand">📏</span>
+                <span>Expand Paddle - Temporarily enlarges your paddle</span>
+            </div>
+            <div class="power-up-item">
+                <span class="power-icon slow">🐢</span>
+                <span>Slow Ball - Slows down the ball</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
